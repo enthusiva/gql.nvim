@@ -9,7 +9,7 @@ Use with [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 require('lazy').setup({
     {
-        'your-username/gql.nvim',
+        'enthusiva/gql.nvim',
         config = function()
             require('gql').setup({
                 servers = {
