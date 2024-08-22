@@ -7,24 +7,21 @@ A Neovim plugin for executing GraphQL queries directly from your editor.
 Use with [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
-require('lazy').setup({
-    {
-        'enthusiva/gql.nvim',
-        config = function()
-            require('gql').setup({
-                servers = {
-                    {
-                        name = "My GraphQL Server",
-                        url = "https://example.com/graphql",
-                        auth = {
-                            type = "Bearer",
-                            token = "your_token_here",
-                        },
-                    },
-                },
-            })
-        end,
-        keys = { "<leader>gq" },
-    },
-})
+return {
+  "enthusiva/gql.nvim",
+  config = function()
+    require("gql").setup({
+      servers = {
+        default = {
+          url = "https://api.example.com/graphql",
+          auth = "Bearer your-token-here" -- Optional
+        },
+        other_server = {
+          url = "https://api.otherserver.com/graphql"
+        }
+      }
+    })
+  end,
+  cmd = "ExecuteQuery",
+}
 ```
