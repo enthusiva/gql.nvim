@@ -213,8 +213,8 @@ function M.execute_query(_, range_start, range_end)
 	local lines = vim.fn.getline(range_start, range_end)
 
 	-- Extract the selected text
-	-- local query = table.concat(lines, "\n")
-	local query = trim_empty_lines(lines)
+	local qry = table.concat(lines, "\n")
+	local query = trim_empty_lines(qry)
 	-- If no query is selected, show an error
 	if not query or query == "" then
 		show_error("No query selected!")
