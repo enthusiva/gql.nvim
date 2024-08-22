@@ -182,39 +182,12 @@ local function display_result(result)
 
 	create_window(mode, lines)
 end
-local function trim_empty_lines(text)
-	-- Split the text into lines
-	local lines = vim.split(text, "\n")
-
-	-- Trim leading empty lines
-	local start_index = 1
-	while start_index <= #lines and lines[start_index]:match("^%s*$") do
-		start_index = start_index + 1
-	end
-
-	-- Trim trailing empty lines
-	local end_index = #lines
-	while end_index >= start_index and lines[end_index]:match("^%s*$") do
-		end_index = end_index - 1
-	end
-
-	-- Extract the non-empty lines
-	local trimmed_lines = {}
-	for i = start_index, end_index do
-		table.insert(trimmed_lines, lines[i])
-	end
-
-	-- Return the trimmed text
-	return table.concat(trimmed_lines, "\n")
-end
 -- Main function to execute the query
 function M.execute_query(_, range_start, range_end)
 	-- Capture the selected lines
 	local lines = vim.fn.getline(range_start, range_end)
 
-	-- Extract the selected text
-	local qry = table.concat(lines, "\n")
-	local query = trim_empty_lines(qry)
+	local query = table.concat(lines, "\n")
 	-- If no query is selected, show an error
 	if not query or query == "" then
 		show_error("No query selected!")
