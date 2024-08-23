@@ -1,9 +1,10 @@
 local M = {}
-
+-- Setup the package paths
 function M.setup(options)
 	M.config = {
 		servers = {},
 		default_display_mode = "float", -- Options: "float", "horizontal", "vertical"
+		last_selected_server = "",
 	}
 	M.config = vim.tbl_deep_extend("force", M.config, options or {})
 
@@ -37,19 +38,22 @@ local function select_server(callback)
 end
 
 -- Function to prompt for query parameters
-local function prompt_for_params(callback)
-	vim.ui.input({ prompt = "Enter query parameters (JSON format) or leave empty:" }, function(params)
-		if params == "" then
-			params = "{}"
-		end
+local function prompt_for_params(callback, default_params)
+	vim.ui.input(
+		{ prompt = "Enter query parameters (JSON format) or leave empty:", default = default_params },
+		function(params)
+			if params == "" then
+				params = "{}"
+			end
 
-		local success, _ = pcall(vim.fn.json_decode, params)
-		if not success then
-			vim.api.nvim_err_writeln("Invalid JSON input")
-			return nil
+			local success, _ = pcall(vim.fn.json_decode, params)
+			if not success then
+				vim.api.nvim_err_writeln("Invalid JSON input")
+				return nil
+			end
+			callback(params)
 		end
-		callback(params)
-	end)
+	)
 end
 
 local function extract_graphql_query()
@@ -250,28 +254,49 @@ function M.execute_query(_, range_start, range_end)
 	-- local lines = vim.fn.getline(range_start, range_end)
 	-- local query = table.concat(lines, "\n")
 	local query = extract_graphql_query()
+	local yaml = require("gql.yaml")
+	local params_json = yaml.get_params_from_config(query)
 	-- If no query is selected, show an error
 	if not query or query == "" then
 		show_error("No query selected!")
 		return
 	end
 
-	-- Select the GraphQL server
-	select_server(function(server)
+	if M.config.last_selected_server == "" then
+		-- Select the GraphQL server
+		select_server(function(server)
+			M.config.last_selected_server = server
+			-- Prompt for query parameters
+			prompt_for_params(function(params)
+				-- Execute the query using curl
+				local result = execute_curl_request(server, query, params)
+
+				-- Display the result in a popup window
+				display_result(result)
+			end, params_json)
+		end)
+	else
 		-- Prompt for query parameters
 		prompt_for_params(function(params)
 			-- Execute the query using curl
-			local result = execute_curl_request(server, query, params)
+			local result = execute_curl_request(M.config.last_selected_server, query, params)
 
 			-- Display the result in a popup window
 			display_result(result)
-		end)
+		end, params_json)
+	end
+end
+M.change_server = function()
+	select_server(function(server)
+		M.config.last_selected_server = server
 	end)
 end
-
 -- Register the :ExecuteQuery command with range enabled
 vim.api.nvim_create_user_command("ExecuteQuery", function(opts)
 	M.execute_query(opts.line1, opts.line1, opts.line2)
 end, { range = true })
 
+vim.api.nvim_create_user_command("SelectServer", function()
+	M.change_server()
+end, {})
 return M
