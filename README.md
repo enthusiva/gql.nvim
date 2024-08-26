@@ -32,3 +32,7 @@ return {
   cmd = {"ExecuteQuery","SelectServer"}
 }
 ```
+
+# To-do List
+
+- [ ] Server specific gql params file

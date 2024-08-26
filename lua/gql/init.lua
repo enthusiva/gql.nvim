@@ -1,26 +1,28 @@
-local M = {}
--- Setup the package paths
-function M.setup(options)
-	M.config = {
-		servers = {},
-		default_display_mode = "float", -- Options: "float", "horizontal", "vertical"
-		last_selected_server = "",
-	}
-	M.config = vim.tbl_deep_extend("force", M.config, options or {})
+local yaml = require("gql.yaml")
+local window = require("gql.window")
+local graphql = require("gql.graphql")
+local config = {
+	servers = {},
+	last_selected_server = "",
+}
 
-	if vim.tbl_isempty(M.config.servers) then
+local M = {}
+
+function M.setup(options)
+	yaml.setup(options)
+	window.setup(options)
+	config = vim.tbl_deep_extend("force", config, options or {})
+	if vim.tbl_isempty(config.servers) then
 		vim.notify("No GraphQL servers configured.", vim.log.levels.ERROR)
 	end
 end
-
--- Function to display an error message in Neovim
 local function show_error(msg)
 	vim.api.nvim_err_writeln(msg)
 end
 
 -- Function to prompt for GraphQL server selection
 local function select_server(callback)
-	local servers = M.config.servers
+	local servers = config.servers
 	if not servers or vim.tbl_isempty(servers) then
 		show_error("No GraphQL servers configured!")
 		return
@@ -56,77 +58,12 @@ local function prompt_for_params(callback, default_params)
 	)
 end
 
-local function extract_graphql_query()
-	local bufnr = vim.api.nvim_get_current_buf()
-	local cursor = vim.api.nvim_win_get_cursor(0)
-	local line = cursor[1]
-	local col = cursor[2]
-
-	-- Get the current buffer content
-	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-	-- Search for the GraphQL query start and end
-	local start_pattern = "gql`"
-	local end_pattern = "`"
-
-	local start_line = nil
-	local end_line = nil
-
-	-- Find the start of the GraphQL query
-	for i = line, 1, -1 do
-		local line_content = lines[i]
-		local start_pos = line_content:find(start_pattern)
-		if start_pos then
-			start_line = i
-			break
-		end
-	end
-
-	-- Find the end of the GraphQL query
-	for i = line, #lines do
-		local line_content = lines[i]
-		local end_pos = line_content:find(end_pattern)
-		if end_pos then
-			end_line = i
-			break
-		end
-	end
-
-	if not start_line or not end_line then
-		print("GraphQL query not found")
-		return
-	end
-
-	-- Extract the query content
-	local query_lines = {}
-	for i = start_line, end_line do
-		local line_content = lines[i]
-		if i == start_line then
-			-- Extract part of the line after the start pattern
-			local start_pos = line_content:find(start_pattern)
-			table.insert(query_lines, line_content:sub(start_pos + #start_pattern))
-		elseif i == end_line then
-			-- Extract part of the line before the end pattern
-			local end_pos = line_content:find(end_pattern)
-			table.insert(query_lines, line_content:sub(1, end_pos - 1))
-		else
-			table.insert(query_lines, line_content)
-		end
-	end
-
-	return table.concat(query_lines, "\n")
-end
-
 -- Function to execute the GraphQL query using curl
 local function execute_curl_request(server, query, params)
-	-- Construct the JSON payload
 	local payload = vim.fn.json_encode({
 		query = query,
 		variables = vim.fn.json_decode(params),
 	})
-	-- Debug logs
-	-- vim.api.nvim_out_write("Payload: " .. payload .. "\n")
-	-- Construct the curl command
 	local cmd = {
 		"curl",
 		"-s",
@@ -139,164 +76,66 @@ local function execute_curl_request(server, query, params)
 		server.url,
 	}
 
-	-- Add Authorization header if available
 	if server.auth then
 		table.insert(cmd, 5, "-H")
 		table.insert(cmd, 6, "Authorization: " .. server.auth)
 	end
 
-	-- Execute the curl command and capture the output
 	local result = vim.fn.system(cmd)
 	return result
 end
 
--- Simple function to pretty-print JSON using Lua
-local function pretty_print_json(json_string)
-	local function indent(level)
-		return string.rep("    ", level)
-	end
-
-	local function parse(value, level)
-		local type_value = type(value)
-		if type_value == "table" then
-			local result = "{\n"
-			for k, v in pairs(value) do
-				result = result .. indent(level + 1) .. '"' .. tostring(k) .. '": ' .. parse(v, level + 1) .. ",\n"
-			end
-			result = result:sub(1, -3) .. "\n" .. indent(level) .. "}"
-			return result
-		elseif type_value == "string" then
-			return '"' .. value:gsub('"', '\\"') .. '"'
-		elseif type_value == "number" or type_value == "boolean" then
-			return tostring(value)
-		else
-			return "null"
-		end
-	end
-
-	local success, json = pcall(vim.json.decode, json_string)
-	if not success then
-		return json_string -- Return original if decoding fails
-	end
-
-	return parse(json, 0)
-end
-local function get_window_options()
-	local width = math.floor(vim.o.columns * 0.9) -- 90% of the current editor's width
-	local height = math.floor(vim.o.lines * 0.9)
-	local row = math.floor((vim.o.lines - height) / 2)
-	local col = math.floor((vim.o.columns - width) / 2)
-
-	return {
-		relative = "editor",
-		width = width,
-		height = height,
-		row = row,
-		col = col,
-		style = "minimal",
-		border = "rounded",
-	}
-end
-
-local function write_to_buffer(buf, lines)
-	vim.api.nvim_buf_set_option(buf, "modifiable", true)
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	vim.api.nvim_buf_set_option(buf, "modifiable", false)
-end
-
-local function create_window(mode, lines)
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_buf_set_option(buf, "filetype", "json")
-	write_to_buffer(buf, lines)
-
-	local win_opts = get_window_options()
-
-	if mode == "float" then
-		win_opts.relative = "editor"
-		local win = vim.api.nvim_open_win(buf, true, win_opts)
-		vim.api.nvim_win_set_option(win, "wrap", true)
-		vim.api.nvim_win_set_option(win, "linebreak", true)
-		vim.api.nvim_buf_set_keymap(buf, "n", "q", "<Cmd>q<CR>", { noremap = true, silent = true })
-		vim.api.nvim_buf_set_keymap(buf, "n", "<Esc>", "<Cmd>q<CR>", { noremap = true, silent = true })
-	elseif mode == "horizontal" then
-		vim.cmd("split")
-		local win = vim.api.nvim_get_current_win()
-		vim.api.nvim_win_set_buf(win, buf)
-		vim.api.nvim_win_set_option(win, "wrap", true)
-		vim.api.nvim_win_set_option(win, "linebreak", true)
-		vim.api.nvim_buf_set_keymap(buf, "n", "q", "<Cmd>q<CR>", { noremap = true, silent = true })
-		vim.api.nvim_buf_set_keymap(buf, "n", "<Esc>", "<Cmd>q<CR>", { noremap = true, silent = true })
-	elseif mode == "vertical" then
-		vim.cmd("vsplit")
-		local win = vim.api.nvim_get_current_win()
-		vim.api.nvim_win_set_buf(win, buf)
-		vim.api.nvim_win_set_option(win, "wrap", true)
-		vim.api.nvim_win_set_option(win, "linebreak", true)
-		vim.api.nvim_buf_set_keymap(buf, "n", "q", "<Cmd>q<CR>", { noremap = true, silent = true })
-		vim.api.nvim_buf_set_keymap(buf, "n", "<Esc>", "<Cmd>q<CR>", { noremap = true, silent = true })
-	else
-		error("Unsupported mode: " .. mode)
-	end
-end
-
 -- Function to display result in different window modes
 local function display_result(result)
-	local mode = M.config.default_display_mode
-	local pretty_result = pretty_print_json(result)
-	local lines = vim.split(pretty_result, "\n")
-
-	create_window(mode, lines)
+	local pretty_result = yaml.pretty_print_json(result)
+	window.write_to_buffer(pretty_result)
 end
 
--- Main function to execute the query
 function M.execute_query(_, range_start, range_end)
-	-- Capture the selected lines
-	-- local lines = vim.fn.getline(range_start, range_end)
-	-- local query = table.concat(lines, "\n")
-	local query = extract_graphql_query()
-	local yaml = require("gql.yaml")
-	local params_json = yaml.get_params_from_config(query)
+	local query = nil
+	local mode = vim.api.nvim_get_mode().mode
+	if mode == "v" or mode == "V" then
+		-- Capture the selected lines
+		local lines = vim.fn.getline(range_start, range_end)
+		query = table.concat(lines, "\n")
+	else
+		query = graphql.extract_query()
+	end
+
 	-- If no query is selected, show an error
 	if not query or query == "" then
 		show_error("No query selected!")
 		return
 	end
-
-	if M.config.last_selected_server == "" then
-		-- Select the GraphQL server
-		select_server(function(server)
-			M.config.last_selected_server = server
-			-- Prompt for query parameters
-			prompt_for_params(function(params)
-				-- Execute the query using curl
-				local result = execute_curl_request(server, query, params)
-
-				-- Display the result in a popup window
+	yaml.get_params_from_config(query, function(params)
+		local params_json = params
+		if config.last_selected_server == "" then
+			select_server(function(server)
+				config.last_selected_server = server
+				prompt_for_params(function(param)
+					local result = execute_curl_request(server, query, param)
+					display_result(result)
+				end, params_json)
+			end)
+		else
+			prompt_for_params(function(param_json)
+				local result = execute_curl_request(config.last_selected_server, query, param_json)
 				display_result(result)
 			end, params_json)
-		end)
-	else
-		-- Prompt for query parameters
-		prompt_for_params(function(params)
-			-- Execute the query using curl
-			local result = execute_curl_request(M.config.last_selected_server, query, params)
-
-			-- Display the result in a popup window
-			display_result(result)
-		end, params_json)
-	end
+		end
+	end)
 end
 M.change_server = function()
 	select_server(function(server)
-		M.config.last_selected_server = server
+		config.last_selected_server = server
 	end)
 end
--- Register the :ExecuteQuery command with range enabled
+
 vim.api.nvim_create_user_command("ExecuteQuery", function(opts)
 	M.execute_query(opts.line1, opts.line1, opts.line2)
 end, { range = true })
 
 vim.api.nvim_create_user_command("SelectServer", function()
 	M.change_server()
-end, {})
+end, { range = true })
 return M
